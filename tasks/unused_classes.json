@@ -1,6 +1,7 @@
 {
   "description": "Identifies unused Puppet classes and modules by cross-referencing class definitions on a Puppet Server against catalog data in PuppetDB. Outputs a JSON report.",
   "input_method": "stdin",
+  "files": ["dead_code_detector/files/deadwood.rb"],
   "parameters": {
     "puppetserver_host": {
       "type": "Optional[String]",

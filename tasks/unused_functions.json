@@ -1,0 +1,15 @@
+{
+  "description": "Identifies unused module-defined Puppet functions via static analysis of the environment directory on the Primary Server. Covers Puppet-language functions (functions/*.pp), modern Ruby API functions (lib/puppet/functions/), and legacy Ruby functions (lib/puppet/parser/functions/). Built-in Puppet language functions are never included — discovery is scoped exclusively to module directories.",
+  "input_method": "stdin",
+  "files": ["dead_code_detector/files/deadwood.rb"],
+  "parameters": {
+    "environment": {
+      "description": "Puppet environment to analyse. Defaults to 'production'.",
+      "type": "Optional[String]"
+    },
+    "env_dir": {
+      "description": "Absolute path to the environment directory on the Primary Server. Defaults to the path derived from `puppet config print environmentpath` and the environment parameter (e.g. /etc/puppetlabs/code/environments/production).",
+      "type": "Optional[String]"
+    }
+  }
+}

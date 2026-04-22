@@ -1,0 +1,15 @@
+{
+  "description": "Identifies unused module templates via static analysis of the environment directory on the Primary Server. Discovers all EPP and ERB template files under modules/<mod>/templates/ and checks whether their canonical module reference ('mymod/path/to/file.epp') appears anywhere in the codebase. No Puppet Server or PuppetDB connection is required. Matching is exact — Puppet always resolves module templates using the '<module_name>/<relative_path>' format, eliminating partial-name false positives.",
+  "input_method": "stdin",
+  "files": ["dead_code_detector/files/deadwood.rb"],
+  "parameters": {
+    "environment": {
+      "description": "Puppet environment to analyse. Defaults to 'production'.",
+      "type": "Optional[String]"
+    },
+    "env_dir": {
+      "description": "Absolute path to the environment directory on the Primary Server. Defaults to the path derived from `puppet config print environmentpath` and the environment parameter (e.g. /etc/puppetlabs/code/environments/production).",
+      "type": "Optional[String]"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "description": "Identifies unused static files in module files/ directories via static analysis. Discovers all files under modules/<mod>/files/ and checks whether their canonical puppet:///modules/<mod>/<path> URI appears in any manifest, function, ERB template, or Ruby library file in the environment. No Puppet Server or PuppetDB connection is required. Note: files inside directories served with `recurse => true` via a directory URI may appear unused even if deployed — review results in modules that use recursive file serving.",
+  "input_method": "stdin",
+  "files": ["dead_code_detector/files/deadwood.rb"],
+  "parameters": {
+    "environment": {
+      "description": "Puppet environment to analyse. Defaults to 'production'.",
+      "type": "Optional[String]"
+    },
+    "env_dir": {
+      "description": "Absolute path to the environment directory on the Primary Server. Defaults to the path derived from `puppet config print environmentpath` and the environment parameter (e.g. /etc/puppetlabs/code/environments/production).",
+      "type": "Optional[String]"
+    }
+  }
+}

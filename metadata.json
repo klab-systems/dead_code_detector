@@ -2,7 +2,7 @@
   "name": "klabsystems-dead_code_detector",
   "version": "0.1.1",
   "author": "klabsystems",
-  "summary": "Identify unused code in your Puppet Enterprise environments",
+  "summary": "Identify unused classes, types, functions, templates, and static files across your Puppet infrastructure",
   "license": "MIT",
   "source": "https://github.com/klab-systems/dead_code_detector",
   "project_page": "https://github.com/klab-systems/dead_code_detector",

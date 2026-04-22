@@ -1,0 +1,43 @@
+{
+  "description": "Identifies unused module-provided Puppet types by combining static filesystem discovery with live PuppetDB resource data. Reports two categories separately: defined types (Puppet-language `define` declarations in manifests/) and custom types (native Ruby types via Puppet::Type.newtype in lib/puppet/type/). A type is considered unused when it has never appeared as a resource in any active node's catalog within the staleness window.",
+  "input_method": "stdin",
+  "files": ["dead_code_detector/files/deadwood.rb"],
+  "parameters": {
+    "environment": {
+      "description": "Puppet environment to analyse. Defaults to 'production'.",
+      "type": "Optional[String]"
+    },
+    "env_dir": {
+      "description": "Absolute path to the environment directory on the Primary Server. Defaults to the path derived from `puppet config print environmentpath` and the environment parameter.",
+      "type": "Optional[String]"
+    },
+    "modules_dir": {
+      "description": "Absolute path to the modules directory to scan. Defaults to <env_dir>/modules.",
+      "type": "Optional[String]"
+    },
+    "puppetdb_host": {
+      "description": "Hostname or IP of PuppetDB. Defaults to the target node's certname.",
+      "type": "Optional[String]"
+    },
+    "puppetdb_port": {
+      "description": "PuppetDB HTTPS port. Defaults to 8081.",
+      "type": "Optional[Integer]"
+    },
+    "stale_days": {
+      "description": "Exclude nodes whose last report is older than this many days. Defaults to 30.",
+      "type": "Optional[Integer]"
+    },
+    "cert": {
+      "description": "Path to a PEM-encoded client certificate.",
+      "type": "Optional[String]"
+    },
+    "key": {
+      "description": "Path to a PEM-encoded client private key.",
+      "type": "Optional[String]"
+    },
+    "ca_cert": {
+      "description": "Path to the PEM-encoded CA certificate.",
+      "type": "Optional[String]"
+    }
+  }
+}

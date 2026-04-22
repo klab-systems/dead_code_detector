@@ -1,0 +1,47 @@
+{
+  "description": "Ranks all Puppet classes active in the given environment by the number of nodes they are applied to, highest first. The inverse of the unused_classes report.",
+  "input_method": "stdin",
+  "files": ["dead_code_detector/files/deadwood.rb"],
+  "parameters": {
+    "puppetserver_host": {
+      "description": "Hostname or IP of the Puppet Server. Defaults to the target node's certname.",
+      "type": "Optional[String]"
+    },
+    "puppetdb_host": {
+      "description": "Hostname or IP of PuppetDB. Defaults to the target node's certname.",
+      "type": "Optional[String]"
+    },
+    "puppetserver_port": {
+      "description": "Puppet Server HTTPS port.",
+      "type": "Optional[Integer]"
+    },
+    "puppetdb_port": {
+      "description": "PuppetDB HTTPS port.",
+      "type": "Optional[Integer]"
+    },
+    "environment": {
+      "description": "Puppet environment to analyse. Defaults to 'production'.",
+      "type": "Optional[String]"
+    },
+    "stale_days": {
+      "description": "Exclude nodes whose last report is older than this many days. Defaults to 30.",
+      "type": "Optional[Integer]"
+    },
+    "top_n": {
+      "description": "Return only the top N most-used classes. Defaults to 0 (return all).",
+      "type": "Optional[Integer]"
+    },
+    "cert": {
+      "description": "Path to a PEM-encoded client certificate.",
+      "type": "Optional[String]"
+    },
+    "key": {
+      "description": "Path to a PEM-encoded client private key.",
+      "type": "Optional[String]"
+    },
+    "ca_cert": {
+      "description": "Path to the PEM-encoded CA certificate.",
+      "type": "Optional[String]"
+    }
+  }
+}
