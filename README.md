@@ -2,6 +2,8 @@
 
 Identifies unused Puppet classes and modules by cross-referencing class definitions on a Puppet Primary Server against catalog data in PuppetDB. Helps you keep your codebase clean by surfacing code that is no longer assigned to any node.
 
+Supports both **Puppet Enterprise** (via PE Orchestrator) and **open-source Puppet Core** (via Puppet Bolt) as the task transport mechanism.
+
 ## Table of Contents
 
 1. [Description](#description)
@@ -23,15 +25,20 @@ The results are returned as a JSON report listing:
 
 ## Requirements
 
-- Puppet Enterprise with PuppetDB enabled.
+- Puppet Server with PuppetDB enabled (Puppet Enterprise or open-source Puppet Core).
 - The task must be run **targeting the Primary Server** — it uses the node's own Puppet SSL certificates to authenticate against both the Puppet Server API and PuppetDB.
-- The `pe_node_manager` or equivalent RBAC permission to run tasks on the Primary Server.
+- **Puppet Enterprise:** The `pe_node_manager` or equivalent RBAC permission to run tasks on the Primary Server via PE Orchestrator.
+- **Puppet Core:** [Puppet Bolt](https://www.puppet.com/docs/bolt/) installed on the host you run commands from, with SSH access to the Primary Server.
 
 ## Usage
 
 ### Running the task
 
-Run the `dead_code_detector::generate` task targeting your **Primary Server** node via the PE console or the `puppet task` CLI.
+Run the `dead_code_detector::generate` task targeting your **Primary Server** node. Both Puppet Enterprise (via PE Orchestrator) and Puppet Core (via Puppet Bolt) are supported.
+
+---
+
+#### Puppet Enterprise
 
 **Using the PE Console:**
 
@@ -40,7 +47,7 @@ Run the `dead_code_detector::generate` task targeting your **Primary Server** no
 3. Set the target to your Primary Server.
 4. Set any desired parameters (see below) and click **Run task**.
 
-**Using the CLI:**
+**Using the PE CLI:**
 
 ```bash
 puppet task run dead_code_detector::generate \
@@ -55,6 +62,34 @@ puppet task run dead_code_detector::generate \
   stale_days=60 \
   --nodes <your-primary-server-fqdn>
 ```
+
+---
+
+#### Puppet Bolt
+
+Install the module on the Bolt host (add it to your `Puppetfile` or install directly):
+
+```bash
+bolt module install dead_code_detector
+```
+
+Then run the task targeting your Primary Server:
+
+```bash
+bolt task run dead_code_detector::generate \
+  --targets <your-primary-server-fqdn>
+```
+
+With optional parameters:
+
+```bash
+bolt task run dead_code_detector::generate \
+  environment=development \
+  stale_days=60 \
+  --targets <your-primary-server-fqdn>
+```
+
+> **Note:** Bolt uses SSH to connect to the target by default. Ensure your Bolt [inventory](https://www.puppet.com/docs/bolt/latest/inventory_files.html) or transport configuration grants access to the Primary Server.
 
 ### Task parameters
 

@@ -1,10 +1,12 @@
 {
   "name": "klabsystems-dead_code_detector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "klabsystems",
-  "summary": "",
+  "summary": "Identify unused code in your Puppet Enterprise environments",
   "license": "MIT",
   "source": "https://github.com/klab-systems/dead_code_detector",
+  "project_page": "https://github.com/klab-systems/dead_code_detector",
+  "issues_url": "https://github.com/klab-systems/dead_code_detector/issues",
   "dependencies": [
 
   ],
