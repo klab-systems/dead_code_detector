@@ -39,6 +39,7 @@ Each task can also be run individually when a narrower scope is needed:
 - All tasks must be run **targeting the Primary Server** — they use the node's own Puppet SSL certificates to authenticate against the Puppet Server API and PuppetDB.
 - **Puppet Enterprise:** The `pe_node_manager` or equivalent RBAC permission to run tasks on the Primary Server via PE Orchestrator.
 - **Puppet Core / OpenVox:** [Puppet Bolt](https://www.puppet.com/docs/bolt/) installed on the host you run commands from, with SSH access to the Primary Server.
+- **Puppet Core / OpenVox — Puppet Server API access:** The `unused_classes` task (and the `full_audit` plan) queries the `/puppet/v3/environment_classes` endpoint on the Puppet Server, which is **denied by default** in `auth.conf`. You must explicitly permit access before running the task. This can be done using the [`puppetlabs-puppet_authorization`](https://forge.puppet.com/modules/puppetlabs/puppet_authorization) module, or manually by editing `/etc/puppetlabs/puppetserver/conf.d/auth.conf` to add an allow rule for that path.
 
 ## How to use the module
 
@@ -100,7 +101,7 @@ All tasks follow the same syntax. Replace `unused_classes` with the desired task
 Install the module on the Bolt host (add it to your `Puppetfile` or install directly):
 
 ```bash
-bolt module install dead_code_detector
+bolt module add klabsystems-dead_code_detector
 ```
 
 > **Note:** Bolt uses SSH to connect to the target by default. Ensure your Bolt [inventory](https://www.puppet.com/docs/bolt/latest/inventory_files.html) or transport configuration grants access to the Primary Server.
