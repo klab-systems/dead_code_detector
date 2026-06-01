@@ -1,0 +1,19 @@
+{
+  "description": "Audits hieradata keys in the control-repo environment layer. Reads the environment-level hiera.yaml to locate all declared data directories, then parses every YAML file found under those directories. For each top-level hiera key, reports how many files it appears in and which files contain it — sorted from least popular (fewest files, default) to most popular, or the inverse. Module-level hiera data is excluded. No Puppet Server or PuppetDB connection is required.",
+  "input_method": "stdin",
+  "files": ["dead_code_detector/files/deadwood.rb"],
+  "parameters": {
+    "environment": {
+      "description": "Puppet environment to analyse. Defaults to 'production'.",
+      "type": "Optional[String]"
+    },
+    "env_dir": {
+      "description": "Absolute path to the environment directory on the Primary Server. Defaults to the path derived from `puppet config print environmentpath` and the environment parameter (e.g. /etc/puppetlabs/code/environments/production).",
+      "type": "Optional[String]"
+    },
+    "sort": {
+      "description": "Sort order for results. 'asc' (default) lists least-referenced keys first — the most likely staleness candidates. 'desc' lists most-referenced keys first.",
+      "type": "Optional[Enum[asc, desc]]"
+    }
+  }
+}

@@ -67,7 +67,17 @@ begin
     generated_at:  Time.now.utc.iso8601
   }
 
-  puts JSON.generate({ meta: meta }.merge(result))
+  task_summary = {
+    unused_defined_type_count: result[:unused_defined_types].size,
+    unused_custom_type_count:  result[:unused_custom_types].size,
+  }
+
+  puts JSON.generate({
+    meta:                 meta,
+    summary:              task_summary,
+    unused_defined_types: result[:unused_defined_types],
+    unused_custom_types:  result[:unused_custom_types],
+  })
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })

@@ -6,6 +6,7 @@ require 'json'
 require 'uri'
 require 'set'
 require 'time'
+require 'yaml'
 
 # =============================================================================
 # Deadwood shared library
@@ -867,6 +868,110 @@ module Deadwood
           source_file: f.source_file
         }
       end
+    end
+  end
+
+  # ===========================================================================
+  # HieraScanner
+  #
+  # Audits hieradata from the control-repo environment layer. Reads the
+  # environment-level hiera.yaml to locate all declared data directories, then
+  # parses every YAML file found under those directories.
+  #
+  # For each top-level key discovered, the scanner records how many files it
+  # appears in and which files contain it. This frequency count is a practical
+  # staleness signal: a key that appears in only one file out of many is a
+  # better candidate for review than one referenced across dozens of hierarchy
+  # levels.
+  #
+  # Only data directories declared in the environment-level hiera.yaml are
+  # scanned — module-level hiera data is excluded entirely.
+  # ===========================================================================
+  class HieraScanner
+    # Returns a hash:
+    #   {
+    #     hiera_keys:          [ { key:, file_count:, files: [...] }, ... ],
+    #     data_dirs:           [ '/abs/path/to/datadir', ... ],
+    #     total_keys:          Integer,
+    #     total_files_scanned: Integer,
+    #     warnings:            [ '...' ]
+    #   }
+    def run(env_dir:, sort_order: :asc)
+      raise "Environment directory not found: #{env_dir}" unless File.directory?(env_dir)
+
+      hiera_yaml_path = File.join(env_dir, 'hiera.yaml')
+      raise "hiera.yaml not found in #{env_dir}" unless File.exist?(hiera_yaml_path)
+
+      data_dirs     = resolve_data_dirs(env_dir, hiera_yaml_path)
+      warnings      = []
+      key_files     = Hash.new { |h, k| h[k] = [] }
+      files_scanned = 0
+
+      data_dirs.each do |data_dir|
+        unless File.directory?(data_dir)
+          warnings << "Data directory not found, skipping: #{data_dir}"
+          next
+        end
+
+        Dir.glob(File.join(data_dir, '**', '*.yaml')).sort.each do |yaml_file|
+          keys = extract_keys(yaml_file, warnings)
+          files_scanned += 1
+          relative = yaml_file.sub("#{data_dir}/", '')
+          keys.each { |k| key_files[k] << relative }
+        end
+      end
+
+      ranked = key_files.map do |key, files|
+        { key: key, file_count: files.size, files: files.sort }
+      end
+
+      ranked = case sort_order
+               when :desc then ranked.sort_by { |e| [-e[:file_count], e[:key]] }
+               else            ranked.sort_by { |e| [e[:file_count],  e[:key]] }
+               end
+
+      {
+        hiera_keys:          ranked,
+        data_dirs:           data_dirs,
+        total_keys:          ranked.size,
+        total_files_scanned: files_scanned,
+        warnings:            warnings
+      }
+    end
+
+    private
+
+    # Reads the environment hiera.yaml and returns an array of absolute paths
+    # for every unique datadir declared (defaults + per-hierarchy overrides).
+    def resolve_data_dirs(env_dir, hiera_yaml_path)
+      hiera_config = YAML.safe_load(File.read(hiera_yaml_path)) || {}
+      default_dir  = hiera_config.dig('defaults', 'datadir') || 'data'
+      hierarchy    = hiera_config['hierarchy'] || []
+
+      all_dirs = [default_dir]
+      hierarchy.each do |level|
+        all_dirs << level['datadir'] if level.is_a?(Hash) && level['datadir']
+      end
+
+      all_dirs.uniq.map { |d| File.expand_path(d, env_dir) }
+    rescue Psych::SyntaxError => e
+      raise "Failed to parse hiera.yaml: #{e.message}"
+    end
+
+    # Parses a single YAML data file and returns its top-level keys as strings.
+    # Non-hash documents (bare strings, arrays, etc.) are silently skipped.
+    def extract_keys(yaml_file, warnings)
+      content = File.read(yaml_file, encoding: 'UTF-8', invalid: :replace)
+      data    = YAML.safe_load(content)
+      return [] unless data.is_a?(Hash)
+
+      data.keys.map(&:to_s)
+    rescue Psych::SyntaxError => e
+      warnings << "YAML parse error in #{yaml_file}: #{e.message}"
+      []
+    rescue Errno::EACCES
+      warnings << "Permission denied reading: #{yaml_file}"
+      []
     end
   end
 end

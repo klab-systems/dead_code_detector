@@ -1,6 +1,6 @@
 # dead_code_detector
 
-Helps you keep your Puppet codebase clean by identifying code that is no longer in use. The primary entry point is the **`full_audit`** plan, which produces a complete dead code report covering classes, types, functions, templates, and static files in a single run. Six individual tasks are also available for targeted analysis.
+Helps you keep your Puppet codebase clean by identifying code that is no longer in use. The primary entry point is the **`full_audit`** plan, which produces a complete dead code report covering classes, types, functions, templates, and static files in a single run. Seven individual tasks are also available for targeted analysis.
 
 Supports **Puppet Enterprise** (via PE Orchestrator or Puppet Bolt) and **Puppet Core / OpenVox** (via Puppet Bolt) as the task transport mechanism.
 
@@ -32,6 +32,8 @@ Each task can also be run individually when a narrower scope is needed:
 - **`dead_code_detector::unused_templates`** — static analysis task that discovers all EPP and ERB template files under module `templates/` directories and searches for their canonical module references (`'mymod/path/to/file.epp'`) across the codebase. No PuppetDB connection is required. Matching is exact — Puppet always resolves module templates using the `'<module>/<relative_path>'` format.
 
 - **`dead_code_detector::unused_files`** — static analysis task that discovers all static files under module `files/` directories and searches for their canonical `puppet:///modules/<mod>/<path>` URI across the codebase. No PuppetDB connection is required. Matching is exact by the same principle.
+
+- **`dead_code_detector::analyze_hieradata`** — static analysis task that audits hieradata from the control-repo environment layer only (module-level hiera data is excluded). Reads the environment-level `hiera.yaml` to locate all declared data directories, then parses every YAML file found under those directories. For each top-level hiera key, reports how many files it appears in and which files contain it. Results are sorted from least popular (fewest files, default) to most popular, or the inverse — making it easy to surface staleness candidates. No PuppetDB connection is required.
 
 ## Requirements
 
@@ -92,7 +94,7 @@ puppet task run dead_code_detector::unused_classes \
   --nodes <your-primary-server-fqdn>
 ```
 
-All tasks follow the same syntax. Replace `unused_classes` with the desired task name (`used_classes`, `unused_functions`, `unused_types`, `unused_templates`, `unused_files`) and pass any relevant parameters. See [Task parameters](#task-parameters) for the full reference.
+All tasks follow the same syntax. Replace `unused_classes` with the desired task name (`used_classes`, `unused_functions`, `unused_types`, `unused_templates`, `unused_files`, `analyze_hieradata`) and pass any relevant parameters. See [Task parameters](#task-parameters) for the full reference.
 
 ---
 
@@ -129,18 +131,19 @@ bolt task run dead_code_detector::unused_classes \
   --targets <your-primary-server-fqdn>
 ```
 
-All tasks follow the same syntax. Replace `unused_classes` with the desired task name and pass any relevant parameters. See [Task parameters](#task-parameters) for the full reference.
+All tasks follow the same syntax. Replace `unused_classes` with the desired task name (`used_classes`, `unused_functions`, `unused_types`, `unused_templates`, `unused_files`, `analyze_hieradata`) and pass any relevant parameters. See [Task parameters](#task-parameters) for the full reference.
 
 ---
 
 The `full_audit` plan prints a running summary as it progresses, then returns the combined report:
 
 ```
-[ 1/5 ] Running unused_classes ...
-[ 2/5 ] Running unused_types ...
-[ 3/5 ] Running unused_functions ...
-[ 4/5 ] Running unused_templates ...
-[ 5/5 ] Running unused_files ...
+[ 1/6 ] Running unused_classes ...
+[ 2/6 ] Running unused_types ...
+[ 3/6 ] Running unused_functions ...
+[ 4/6 ] Running unused_templates ...
+[ 5/6 ] Running unused_files ...
+[ 6/6 ] Running analyze_hieradata ...
 
 Audit complete.
   Unused classes:         12
@@ -149,6 +152,8 @@ Audit complete.
   Unused functions:       7
   Unused templates:       5
   Unused static files:    9
+  Hiera keys (total):     312
+  Hiera keys (1 file):    23
 ```
 
 The return value is a single JSON object with a top-level key for each category:
@@ -161,11 +166,22 @@ The return value is a single JSON object with a top-level key for each category:
     "generated_at": "2026-04-22T14:00:00Z",
     "target": "<your-primary-server-fqdn>"
   },
+  "plan_summary": {
+    "unused_classes":         12,
+    "unused_defined_types":   3,
+    "unused_custom_types":    1,
+    "unused_functions":       7,
+    "unused_templates":       5,
+    "unused_static_files":    9,
+    "hiera_keys_total":       312,
+    "hiera_keys_single_file": 23
+  },
   "unused_classes":   { "classes": [...], "modules": [...] },
   "unused_types":     { "defined_types": [...], "custom_types": [...] },
   "unused_functions": { "functions": [...], "warnings": [...] },
   "unused_templates": { "templates": [...] },
-  "unused_files":     { "files": [...] }
+  "unused_files":     { "files": [...] },
+  "hieradata":        { "hiera_keys": [...], "warnings": [...] }
 }
 ```
 
@@ -174,6 +190,12 @@ The return value is a single JSON object with a top-level key for each category:
 ## Task parameters
 
 All parameters are optional. When omitted, the task uses sensible defaults derived from the target node's own Puppet configuration.
+
+**`full_audit` plan only:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `hiera_sort` | `String` | `asc` | Sort order for `analyze_hieradata` results within the plan. `asc` lists least-referenced hiera keys first. `desc` lists most-referenced keys first |
 
 **Common to `unused_classes`, `used_classes`, and `unused_types`:**
 
@@ -214,6 +236,14 @@ All parameters are optional. When omitted, the task uses sensible defaults deriv
 | `env_dir` | `String` | Derived from `puppet config print environmentpath` | Absolute path to the environment directory on the Primary Server |
 | `modules_dir` | `String` | `<env_dir>/modules` | Absolute path to the modules directory to scan |
 
+**`analyze_hieradata` only:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `environment` | `String` | `production` | Puppet environment to analyse |
+| `env_dir` | `String` | Derived from `puppet config print environmentpath` | Absolute path to the environment directory on the Primary Server. Must contain a `hiera.yaml` and the data directories it declares |
+| `sort` | `String` | `asc` | `asc` lists least-referenced keys first (staleness candidates). `desc` lists most-referenced keys first |
+
 ---
 
 ## Output
@@ -223,6 +253,10 @@ All parameters are optional. When omitted, the task uses sensible defaults deriv
 ```json
 {
   "meta": { "environment": "production", "stale_days": 30, "..." : "..." },
+  "summary": {
+    "unused_class_count":  2,
+    "unused_module_count": 1
+  },
   "unused_classes": [
     "mymodule::someclass",
     "otherapp::configure"
@@ -240,6 +274,9 @@ All parameters are optional. When omitted, the task uses sensible defaults deriv
 ```json
 {
   "meta": { "environment": "production", "stale_days": 30, "top_n": 20, "..." : "..." },
+  "summary": {
+    "total_applied_classes": 2
+  },
   "ranked_classes": [
     { "class_name": "ntp",  "node_count": 847 },
     { "class_name": "sudo", "node_count": 831 }
@@ -254,6 +291,11 @@ All parameters are optional. When omitted, the task uses sensible defaults deriv
 ```json
 {
   "meta": { "environment": "production", "env_dir": "/etc/puppetlabs/code/environments/production", "generated_at": "..." },
+  "summary": {
+    "unused_function_count": 1,
+    "used_function_count":   1,
+    "warning_count":         1
+  },
   "unused_functions": [
     { "call_name": "mymod::helper", "qualified_name": "mymod::helper", "module_name": "mymod", "source_file": "...", "type": "pp_modern" }
   ],
@@ -273,6 +315,10 @@ All parameters are optional. When omitted, the task uses sensible defaults deriv
 ```json
 {
   "meta": { "environment": "production", "stale_days": 30, "..." : "..." },
+  "summary": {
+    "unused_defined_type_count": 1,
+    "unused_custom_type_count":  1
+  },
   "unused_defined_types": [
     { "name": "mymod::mytype", "kind": "defined_type", "module_name": "mymod", "source_file": "..." }
   ],
@@ -289,6 +335,10 @@ All parameters are optional. When omitted, the task uses sensible defaults deriv
 ```json
 {
   "meta": { "environment": "production", "env_dir": "/etc/puppetlabs/code/environments/production", "generated_at": "..." },
+  "summary": {
+    "unused_template_count": 2,
+    "used_template_count":   1
+  },
   "unused_templates": [
     { "reference": "mymod/subdir/banner.epp", "module_name": "mymod", "format": "epp", "source_file": "..." },
     { "reference": "legacymod/old_config.erb", "module_name": "legacymod", "format": "erb", "source_file": "..." }
@@ -306,6 +356,10 @@ All parameters are optional. When omitted, the task uses sensible defaults deriv
 ```json
 {
   "meta": { "environment": "production", "env_dir": "/etc/puppetlabs/code/environments/production", "generated_at": "..." },
+  "summary": {
+    "unused_file_count": 2,
+    "used_file_count":   1
+  },
   "unused_files": [
     { "uri": "puppet:///modules/mymod/config/app.conf", "module_name": "mymod", "source_file": "..." },
     { "uri": "puppet:///modules/legacymod/scripts/old_deploy.sh", "module_name": "legacymod", "source_file": "..." }
@@ -317,6 +371,34 @@ All parameters are optional. When omitted, the task uses sensible defaults deriv
 ```
 
 `unused_files` contains every static file whose `puppet:///modules/` URI appears in no source file in the environment. See the recursive directory caveat in [Limitations](#limitations).
+
+#### `analyze_hieradata`
+
+```json
+{
+  "meta": {
+    "environment": "production",
+    "env_dir": "/etc/puppetlabs/code/environments/production",
+    "hiera_yaml": "/etc/puppetlabs/code/environments/production/hiera.yaml",
+    "data_dirs": ["/etc/puppetlabs/code/environments/production/data"],
+    "sort": "asc",
+    "generated_at": "..."
+  },
+  "summary": {
+    "total_keys":          312,
+    "total_files_scanned": 47,
+    "keys_in_single_file": 23,
+    "warning_count":       0
+  },
+  "hiera_keys": [
+    { "key": "profile::legacy_app::jar_version", "file_count": 1, "files": ["os/Solaris.yaml"] },
+    { "key": "ntp::servers", "file_count": 38, "files": ["common.yaml", "os/RedHat.yaml", "..."] }
+  ],
+  "warnings": []
+}
+```
+
+`hiera_keys` is sorted by `file_count` ascending by default — keys appearing in only one file float to the top as the strongest staleness signal. Use `sort=desc` to invert. `warnings` is populated if a data directory is missing or a YAML file cannot be parsed.
 
 ---
 

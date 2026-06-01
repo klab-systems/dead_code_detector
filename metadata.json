@@ -1,6 +1,6 @@
 {
   "name": "klabsystems-dead_code_detector",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "klabsystems",
   "summary": "Identify unused classes, types, functions, templates, and static files across your Puppet infrastructure",
   "license": "Apache-2.0",

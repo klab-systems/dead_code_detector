@@ -48,7 +48,19 @@ begin
     generated_at:      Time.now.utc.iso8601
   }
 
-  puts JSON.generate(Deadwood::Reporter.new.render(result: result, meta: meta))
+  report = Deadwood::Reporter.new.render(result: result, meta: meta)
+
+  output = {
+    meta:    report[:meta],
+    summary: {
+      unused_class_count:  report[:unused_classes].size,
+      unused_module_count: report[:unused_modules].size,
+    },
+    unused_classes: report[:unused_classes],
+    unused_modules: report[:unused_modules],
+  }
+
+  puts JSON.generate(output)
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })
