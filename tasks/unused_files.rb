@@ -42,7 +42,17 @@ begin
     generated_at: Time.now.utc.iso8601
   }
 
-  puts JSON.generate({ meta: meta }.merge(result))
+  task_summary = {
+    unused_file_count: result[:unused_files].size,
+    used_file_count:   result[:used_files].size,
+  }
+
+  puts JSON.generate({
+    meta:         meta,
+    summary:      task_summary,
+    unused_files: result[:unused_files],
+    used_files:   result[:used_files],
+  })
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })

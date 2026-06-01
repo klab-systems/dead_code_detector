@@ -47,7 +47,15 @@ begin
     generated_at: Time.now.utc.iso8601
   }
 
-  puts JSON.generate({ meta: meta }.merge(result))
+  task_summary = {
+    total_applied_classes: result[:ranked_classes].size,
+  }
+
+  puts JSON.generate({
+    meta:           meta,
+    summary:        task_summary,
+    ranked_classes: result[:ranked_classes],
+  })
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })

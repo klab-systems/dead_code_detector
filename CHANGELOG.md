@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## Release 1.1.0 (2026-06-01)
+
+**Features**
+
+- Added `dead_code_detector::analyze_hieradata` task — static analysis task that audits hieradata from the control-repo environment layer. Reads the environment-level `hiera.yaml` to locate all declared data directories, then parses every YAML file found under those directories. For each top-level hiera key, reports how many hieradata files it appears in and which files contain it. Results are sorted from least popular (fewest files, default) to most popular via the `sort` parameter, making it easy to surface staleness candidates. Module-level hiera data is excluded. No Puppet Server or PuppetDB connection is required.
+- Added `Deadwood::HieraScanner` to the shared `deadwood.rb` library. Handles `hiera.yaml` parsing (including per-hierarchy `datadir` overrides), recursive YAML file discovery, key frequency aggregation, and flexible sort ordering. File paths in results are reported relative to their data directory (e.g. `common.yaml`, `os/Debian.yaml`).
+- Added `plan_summary` key to the `full_audit` plan return value. Appears between `meta` and the per-category detail keys, and mirrors the count information already printed to the event log — making the totals available programmatically without parsing the full result.
+- Added `summary` key to every individual task's return value. Appears between `meta` and the result data in each task's output, providing at-a-glance counts without iterating the full arrays. Fields vary per task: `unused_classes`/`unused_functions`/etc. report unused and (where applicable) used counts; `analyze_hieradata` additionally reports `keys_in_single_file` (the count of keys appearing in exactly one data file — the strongest staleness signal) and `warning_count`.
+- Integrated `analyze_hieradata` into the `full_audit` plan. The plan now runs six tasks (updated from five), with `analyze_hieradata` as step 6/6. The `hieradata` key is added to the plan return value, and `plan_summary` is extended with `hiera_keys_total` and `hiera_keys_single_file`. A `hiera_sort` parameter controls the key sort order within the plan.
+
+**Documentation**
+
+- Updated README to document `analyze_hieradata` task — added description bullet, parameter reference table (`environment`, `env_dir`, `sort`), and output format example.
+- Updated README `full_audit` plan documentation — progress indicator updated to 6/6 steps, return value example updated to include `hieradata` key and expanded `plan_summary` fields (`hiera_keys_total`, `hiera_keys_single_file`), and `hiera_sort` added to the plan parameter reference table.
+- Updated PE CLI and Bolt usage sections to include `analyze_hieradata` in the list of available individual tasks.
+- Updated task count from six to seven in the module introduction.
+
 ## Release 1.0.0 (2026-04-22)
 
 **Features**

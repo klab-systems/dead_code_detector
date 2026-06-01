@@ -1,5 +1,5 @@
 # @summary
-#   Runs all dead_code_detector unused-* tasks against a Puppet Primary Server
+#   Runs all dead_code_detector tasks against a Puppet Primary Server
 #   and returns a single organised audit report.
 #
 # @param targets
@@ -15,7 +15,12 @@
 # @param env_dir
 #   Absolute path to the environment directory on the Primary Server.
 #   Derived automatically from `puppet config print environmentpath` when omitted.
-#   Used by unused_functions, unused_types, unused_templates, and unused_files.
+#   Used by unused_functions, unused_types, unused_templates, unused_files,
+#   and analyze_hieradata.
+#
+# @param hiera_sort
+#   Sort order for analyze_hieradata results. 'asc' (default) lists least-referenced
+#   hiera keys first. 'desc' lists most-referenced keys first.
 #
 # @param puppetserver_host
 #   Hostname or IP of the Puppet Server (unused_classes only). Defaults to the
@@ -45,6 +50,7 @@ plan dead_code_detector::full_audit(
   String            $environment       = 'production',
   Integer           $stale_days        = 30,
   Optional[String]  $env_dir           = undef,
+  Enum[asc, desc]   $hiera_sort        = 'asc',
   Optional[String]  $puppetserver_host = undef,
   Optional[String]  $puppetdb_host     = undef,
   Optional[Integer] $puppetserver_port = undef,
@@ -82,23 +88,30 @@ plan dead_code_detector::full_audit(
   $fs_params = { 'environment' => $environment }
     + if $env_dir           { { 'env_dir'           => $env_dir           } } else { {} }
 
+  # analyze_hieradata params
+  $hiera_params = { 'environment' => $environment, 'sort' => $hiera_sort }
+    + if $env_dir           { { 'env_dir'           => $env_dir           } } else { {} }
+
   # ------------------------------------------------------------------
-  # Run all unused_* tasks
+  # Run all tasks
   # ------------------------------------------------------------------
-  out::message('[ 1/5 ] Running unused_classes ...')
+  out::message('[ 1/6 ] Running unused_classes ...')
   $r_classes   = run_task('dead_code_detector::unused_classes',   $targets, $classes_params)
 
-  out::message('[ 2/5 ] Running unused_types ...')
+  out::message('[ 2/6 ] Running unused_types ...')
   $r_types     = run_task('dead_code_detector::unused_types',     $targets, $types_params)
 
-  out::message('[ 3/5 ] Running unused_functions ...')
+  out::message('[ 3/6 ] Running unused_functions ...')
   $r_functions = run_task('dead_code_detector::unused_functions', $targets, $fs_params)
 
-  out::message('[ 4/5 ] Running unused_templates ...')
+  out::message('[ 4/6 ] Running unused_templates ...')
   $r_templates = run_task('dead_code_detector::unused_templates', $targets, $fs_params)
 
-  out::message('[ 5/5 ] Running unused_files ...')
+  out::message('[ 5/6 ] Running unused_files ...')
   $r_files     = run_task('dead_code_detector::unused_files',     $targets, $fs_params)
+
+  out::message('[ 6/6 ] Running analyze_hieradata ...')
+  $r_hiera     = run_task('dead_code_detector::analyze_hieradata', $targets, $hiera_params)
 
   # ------------------------------------------------------------------
   # Assemble combined report
@@ -108,6 +121,7 @@ plan dead_code_detector::full_audit(
   $fv = $r_functions.first.value
   $mv = $r_templates.first.value
   $lv = $r_files.first.value
+  $hv = $r_hiera.first.value
 
   $report = {
     'meta' => {
@@ -115,6 +129,16 @@ plan dead_code_detector::full_audit(
       'stale_days'   => $stale_days,
       'generated_at' => strftime(Timestamp(), '%Y-%m-%dT%H:%M:%SZ'),
       'target'       => $targets,
+    },
+    'plan_summary' => {
+      'unused_classes'         => $cv['unused_classes'].length,
+      'unused_defined_types'   => $tv['unused_defined_types'].length,
+      'unused_custom_types'    => $tv['unused_custom_types'].length,
+      'unused_functions'       => $fv['unused_functions'].length,
+      'unused_templates'       => $mv['unused_templates'].length,
+      'unused_static_files'    => $lv['unused_files'].length,
+      'hiera_keys_total'       => $hv['summary']['total_keys'],
+      'hiera_keys_single_file' => $hv['summary']['keys_in_single_file'],
     },
     'unused_classes' => {
       'classes' => $cv['unused_classes'],
@@ -134,6 +158,10 @@ plan dead_code_detector::full_audit(
     'unused_files' => {
       'files' => $lv['unused_files'],
     },
+    'hieradata' => {
+      'hiera_keys' => $hv['hiera_keys'],
+      'warnings'   => $hv['warnings'],
+    },
   }
 
   # ------------------------------------------------------------------
@@ -146,6 +174,8 @@ plan dead_code_detector::full_audit(
   out::message("  Unused functions:       ${$report['unused_functions']['functions'].length}")
   out::message("  Unused templates:       ${$report['unused_templates']['templates'].length}")
   out::message("  Unused static files:    ${$report['unused_files']['files'].length}")
+  out::message("  Hiera keys (total):     ${$report['plan_summary']['hiera_keys_total']}")
+  out::message("  Hiera keys (1 file):    ${$report['plan_summary']['hiera_keys_single_file']}")
 
   return $report
 }
