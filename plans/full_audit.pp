@@ -3,7 +3,10 @@
 #   and returns a single organised audit report.
 #
 # @param targets
-#   The Puppet Primary Server to target. Must be a single node.
+#   The Puppet Primary Server to target. Must be a single node. When omitted,
+#   the primary server is discovered automatically via PuppetDB using the PQL
+#   query `inventory[certname] { facts.pe_status_check_role = "primary" }`
+#   (requires a PuppetDB connection configured for Bolt).
 #
 # @param environment
 #   Puppet environment to analyse. Defaults to 'production'.
@@ -46,7 +49,7 @@
 #   Path to the PEM-encoded CA certificate on the Primary Server.
 #
 plan dead_code_detector::full_audit(
-  TargetSpec        $targets,
+  Optional[TargetSpec] $targets        = undef,
   String            $environment       = 'production',
   Integer           $stale_days        = 30,
   Optional[String]  $env_dir           = undef,
@@ -59,6 +62,24 @@ plan dead_code_detector::full_audit(
   Optional[String]  $key               = undef,
   Optional[String]  $ca_cert           = undef,
 ) {
+  # ------------------------------------------------------------------
+  # Resolve the target: use $targets if given, else query PuppetDB for the
+  # node where $facts['pe_status_check_role'] == 'primary'
+  # ------------------------------------------------------------------
+  if $targets {
+    $primary = get_targets($targets)
+  } else {
+    $pql = 'inventory[certname] { facts.pe_status_check_role = "primary" }'
+    $found = puppetdb_query($pql).map |$row| { $row['certname'] }
+    if $found.empty {
+      fail_plan("No primary server found in PuppetDB (PQL: ${pql}). Specify --targets explicitly.", 'dead_code_detector/no-primary')
+    }
+    if $found.length > 1 {
+      fail_plan("Multiple primary servers found (${found.join(', ')}). Specify --targets explicitly.", 'dead_code_detector/multiple-primaries')
+    }
+    $primary = get_targets($found)
+  }
+
   # ------------------------------------------------------------------
   # Build parameter sets for each task group
   # ------------------------------------------------------------------
@@ -96,22 +117,22 @@ plan dead_code_detector::full_audit(
   # Run all tasks
   # ------------------------------------------------------------------
   out::message('[ 1/6 ] Running unused_classes ...')
-  $r_classes   = run_task('dead_code_detector::unused_classes',   $targets, $classes_params)
+  $r_classes   = run_task('dead_code_detector::unused_classes',   $primary, $classes_params)
 
   out::message('[ 2/6 ] Running unused_types ...')
-  $r_types     = run_task('dead_code_detector::unused_types',     $targets, $types_params)
+  $r_types     = run_task('dead_code_detector::unused_types',     $primary, $types_params)
 
   out::message('[ 3/6 ] Running unused_functions ...')
-  $r_functions = run_task('dead_code_detector::unused_functions', $targets, $fs_params)
+  $r_functions = run_task('dead_code_detector::unused_functions', $primary, $fs_params)
 
   out::message('[ 4/6 ] Running unused_templates ...')
-  $r_templates = run_task('dead_code_detector::unused_templates', $targets, $fs_params)
+  $r_templates = run_task('dead_code_detector::unused_templates', $primary, $fs_params)
 
   out::message('[ 5/6 ] Running unused_files ...')
-  $r_files     = run_task('dead_code_detector::unused_files',     $targets, $fs_params)
+  $r_files     = run_task('dead_code_detector::unused_files',     $primary, $fs_params)
 
   out::message('[ 6/6 ] Running analyze_hieradata ...')
-  $r_hiera     = run_task('dead_code_detector::analyze_hieradata', $targets, $hiera_params)
+  $r_hiera     = run_task('dead_code_detector::analyze_hieradata', $primary, $hiera_params)
 
   # ------------------------------------------------------------------
   # Assemble combined report
@@ -128,7 +149,7 @@ plan dead_code_detector::full_audit(
       'environment'  => $environment,
       'stale_days'   => $stale_days,
       'generated_at' => strftime(Timestamp(), '%Y-%m-%dT%H:%M:%SZ'),
-      'target'       => $targets,
+      'target'       => $primary[0].name,
     },
     'plan_summary' => {
       'unused_classes'         => $cv['unused_classes'].length,
