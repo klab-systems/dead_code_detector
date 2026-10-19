@@ -115,6 +115,8 @@ bolt plan run dead_code_detector::full_audit \
   --targets <your-primary-server-fqdn>
 ```
 
+If `--targets` is omitted, the plan auto-discovers the Primary Server from PuppetDB using the PQL query `inventory[certname] { facts.pe_status_check_role = "primary" }`. This requires a PuppetDB connection configured for Bolt, and fails if zero or multiple primaries are found.
+
 With optional parameters:
 
 ```bash
