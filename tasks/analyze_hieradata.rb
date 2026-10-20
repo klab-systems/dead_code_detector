@@ -24,10 +24,10 @@ def puppet_config(key)
   val.empty? ? nil : val
 end
 
-params      = JSON.parse(STDIN.read)
+params      = JSON.parse($stdin.read)
 environment = params['environment'] || 'production'
 sort_param  = params['sort'] || 'asc'
-sort_order  = sort_param == 'desc' ? :desc : :asc
+sort_order  = (sort_param == 'desc') ? :desc : :asc
 
 env_dir = params['env_dir'] ||
           begin
@@ -44,27 +44,27 @@ begin
   keys_in_single_file = result[:hiera_keys].count { |e| e[:file_count] == 1 }
 
   meta = {
-    environment:  environment,
-    env_dir:      env_dir,
-    hiera_yaml:   File.join(env_dir, 'hiera.yaml'),
-    data_dirs:    data_dirs,
-    sort:         sort_param,
-    generated_at: Time.now.utc.iso8601
+    environment: environment,
+    env_dir: env_dir,
+    hiera_yaml: File.join(env_dir, 'hiera.yaml'),
+    data_dirs: data_dirs,
+    sort: sort_param,
+    generated_at: Time.now.utc.iso8601,
   }
 
   task_summary = {
-    total_keys:          total_keys,
+    total_keys: total_keys,
     total_files_scanned: total_files_scanned,
     keys_in_single_file: keys_in_single_file,
-    warning_count:       result[:warnings].size,
+    warning_count: result[:warnings].size,
   }
 
   puts JSON.generate({
-    meta:       meta,
-    summary:    task_summary,
-    hiera_keys: result[:hiera_keys],
-    warnings:   result[:warnings],
-  })
+                       meta: meta,
+                       summary: task_summary,
+                       hiera_keys: result[:hiera_keys],
+                       warnings: result[:warnings],
+                     })
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })

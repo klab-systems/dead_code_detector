@@ -24,7 +24,7 @@ def puppet_config(key)
   val.empty? ? nil : val
 end
 
-params      = JSON.parse(STDIN.read)
+params      = JSON.parse($stdin.read)
 environment = params['environment'] || 'production'
 
 # Resolve the environment directory. Allow explicit override via parameter,
@@ -39,24 +39,24 @@ begin
   result = Deadwood::FunctionScanner.new.run(env_dir: env_dir)
 
   meta = {
-    environment:  environment,
-    env_dir:      env_dir,
-    generated_at: Time.now.utc.iso8601
+    environment: environment,
+    env_dir: env_dir,
+    generated_at: Time.now.utc.iso8601,
   }
 
   task_summary = {
     unused_function_count: result[:unused_functions].size,
-    used_function_count:   result[:used_functions].size,
-    warning_count:         result[:warnings].size,
+    used_function_count: result[:used_functions].size,
+    warning_count: result[:warnings].size,
   }
 
   puts JSON.generate({
-    meta:             meta,
-    summary:          task_summary,
-    unused_functions: result[:unused_functions],
-    used_functions:   result[:used_functions],
-    warnings:         result[:warnings],
-  })
+                       meta: meta,
+                       summary: task_summary,
+                       unused_functions: result[:unused_functions],
+                       used_functions: result[:used_functions],
+                       warnings: result[:warnings],
+                     })
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })

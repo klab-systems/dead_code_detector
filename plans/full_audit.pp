@@ -90,28 +90,28 @@ plan dead_code_detector::full_audit(
     'stale_days'  => $stale_days,
   }
   $pdb_params = $pdb_base
-    + if $puppetdb_host     { { 'puppetdb_host'     => $puppetdb_host     } } else { {} }
-    + if $puppetdb_port     { { 'puppetdb_port'     => $puppetdb_port     } } else { {} }
-    + if $cert              { { 'cert'              => $cert              } } else { {} }
-    + if $key               { { 'key'               => $key               } } else { {} }
-    + if $ca_cert           { { 'ca_cert'           => $ca_cert           } } else { {} }
+  + if $puppetdb_host { { 'puppetdb_host'     => $puppetdb_host } } else { {} }
+  + if $puppetdb_port { { 'puppetdb_port'     => $puppetdb_port } } else { {} }
+  + if $cert { { 'cert'              => $cert } } else { {} }
+  + if $key { { 'key'               => $key } } else { {} }
+  + if $ca_cert { { 'ca_cert'           => $ca_cert } } else { {} }
 
   # unused_classes also needs Puppet Server connection params
   $classes_params = $pdb_params
-    + if $puppetserver_host { { 'puppetserver_host' => $puppetserver_host } } else { {} }
-    + if $puppetserver_port { { 'puppetserver_port' => $puppetserver_port } } else { {} }
+  + if $puppetserver_host { { 'puppetserver_host' => $puppetserver_host } } else { {} }
+  + if $puppetserver_port { { 'puppetserver_port' => $puppetserver_port } } else { {} }
 
   # unused_types additionally needs env_dir for its filesystem scanner
   $types_params = $pdb_params
-    + if $env_dir           { { 'env_dir'           => $env_dir           } } else { {} }
+  + if $env_dir { { 'env_dir'           => $env_dir } } else { {} }
 
   # Filesystem-only params: unused_functions, unused_templates, unused_files
   $fs_params = { 'environment' => $environment }
-    + if $env_dir           { { 'env_dir'           => $env_dir           } } else { {} }
+  + if $env_dir { { 'env_dir'           => $env_dir } } else { {} }
 
   # analyze_hieradata params
   $hiera_params = { 'environment' => $environment, 'sort' => $hiera_sort }
-    + if $env_dir           { { 'env_dir'           => $env_dir           } } else { {} }
+  + if $env_dir { { 'env_dir'           => $env_dir } } else { {} }
 
   # ------------------------------------------------------------------
   # Run all tasks

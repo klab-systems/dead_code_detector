@@ -26,7 +26,7 @@ def puppet_config(key)
   val.empty? ? nil : val
 end
 
-params      = JSON.parse(STDIN.read)
+params      = JSON.parse($stdin.read)
 ssl_dir     = '/etc/puppetlabs/puppet/ssl'
 certname    = resolve_certname
 environment = params['environment'] || 'production'
@@ -53,31 +53,31 @@ begin
 
   applied_resource_types = pdb.fetch_applied_resource_types(environment: environment, since: since)
   result                 = Deadwood::TypeScanner.new.run(
-    modules_dir:            modules_dir,
-    applied_resource_types: applied_resource_types
+    modules_dir: modules_dir,
+    applied_resource_types: applied_resource_types,
   )
 
   meta = {
-    environment:   environment,
-    env_dir:       env_dir,
-    modules_dir:   modules_dir,
-    stale_days:    stale_days,
+    environment: environment,
+    env_dir: env_dir,
+    modules_dir: modules_dir,
+    stale_days: stale_days,
     puppetdb_host: puppetdb_host,
     puppetdb_port: puppetdb_port,
-    generated_at:  Time.now.utc.iso8601
+    generated_at: Time.now.utc.iso8601,
   }
 
   task_summary = {
     unused_defined_type_count: result[:unused_defined_types].size,
-    unused_custom_type_count:  result[:unused_custom_types].size,
+    unused_custom_type_count: result[:unused_custom_types].size,
   }
 
   puts JSON.generate({
-    meta:                 meta,
-    summary:              task_summary,
-    unused_defined_types: result[:unused_defined_types],
-    unused_custom_types:  result[:unused_custom_types],
-  })
+                       meta: meta,
+                       summary: task_summary,
+                       unused_defined_types: result[:unused_defined_types],
+                       unused_custom_types: result[:unused_custom_types],
+                     })
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })
