@@ -67,7 +67,7 @@ module Deadwood
   # ===========================================================================
   class PuppetdbClient
     LIMIT          = 10_000
-    EXCLUDED_NAMES = %w[class settings].freeze
+    EXCLUDED_NAMES = ['class', 'settings'].freeze
 
     def initialize(host:, port:, cert:, key:, ca_cert:)
       @host    = host
@@ -109,7 +109,7 @@ module Deadwood
                 ['group_by', 'type']]
       path   = "/pdb/query/v4/resources?query=#{URI.encode_uri_component(JSON.generate(ast))}"
       body   = request(path).body
-      JSON.parse(body).map { |r| r['type'].downcase }.to_set
+      JSON.parse(body).to_set { |r| r['type'].downcase }
     rescue JSON::ParserError => e
       raise "Invalid JSON from PuppetDB (resource types): #{e.message}"
     end
@@ -225,12 +225,51 @@ module Deadwood
   class Reporter
     def render(result:, meta:)
       {
-        meta:           meta,
+        meta: meta,
         unused_classes: result[:unused_classes].sort,
-        unused_modules: result[:unused_modules].map { |m|
+        unused_modules: result[:unused_modules].map do |m|
           { name: m.name, unused_class_count: m.classes.size, classes: m.classes }
-        }
+        end,
       }
+    end
+  end
+
+  # ===========================================================================
+  # ScannerSupport
+  #
+  # Shared environment validation and source reading for static scanners.
+  # ===========================================================================
+  module ScannerSupport
+    private
+
+    def modules_directory(env_dir)
+      raise "Environment directory not found: #{env_dir}" unless File.directory?(env_dir)
+
+      modules_dir = File.join(env_dir, 'modules')
+      raise "modules/ directory not found under #{env_dir}" unless File.directory?(modules_dir)
+
+      modules_dir
+    end
+
+    def each_source_content(env_dir)
+      collect_source_files(env_dir).each do |src|
+        begin
+          content = File.read(src, encoding: 'UTF-8', invalid: :replace)
+        rescue Errno::EACCES
+          next
+        end
+        yield src, content
+      end
+    end
+
+    def find_references(env_dir, references)
+      found = Set.new
+      return found if references.empty?
+
+      each_source_content(env_dir) do |_, content|
+        references.each { |ref| found.add(ref) if content.include?(ref) }
+      end
+      found
     end
   end
 
@@ -250,7 +289,7 @@ module Deadwood
   #                  e.g.  function mymod::myfunc(...) { ... }
   #
   #   :ruby_modern — Puppet 4+ Ruby API in modules/<mod>/lib/puppet/functions/
-  #                  e.g.  Puppet::Functions.create_function(:'mymod::myfunc')
+  #                  e.g.  Puppet::Functions.create_function(:'mod::myfunc')
   #
   #   :ruby_legacy — Legacy Ruby API in modules/<mod>/lib/puppet/parser/functions/
   #                  e.g.  Puppet::Parser::Functions.newfunction(:myfunc, ...)
@@ -258,6 +297,8 @@ module Deadwood
   #                  higher for short generic names.
   # ===========================================================================
   class FunctionScanner
+    include ScannerSupport
+
     FunctionDef = Struct.new(:call_name, :qualified_name, :module_name, :source_file, :type, keyword_init: true)
 
     # Returns a hash:
@@ -267,124 +308,18 @@ module Deadwood
     #     warnings:         [ "..." ]
     #   }
     def run(env_dir:)
-      raise "Environment directory not found: #{env_dir}" unless File.directory?(env_dir)
-
-      modules_dir = File.join(env_dir, 'modules')
-      raise "modules/ directory not found under #{env_dir}" unless File.directory?(modules_dir)
-
-      functions   = discover_module_functions(modules_dir)
+      functions   = FunctionDiscovery.new.run(modules_directory(env_dir))
       call_sites  = find_call_sites(env_dir, functions.map(&:call_name).uniq)
-      warnings    = build_warnings(functions)
-
-      unused = functions.reject { |f| call_sites.key?(f.call_name) }
-      used   = functions.select { |f| call_sites.key?(f.call_name) }
+      used, unused = functions.partition { |f| call_sites.key?(f.call_name) }
 
       {
         unused_functions: serialize(unused),
-        used_functions:   serialize(used),
-        warnings:         warnings
+        used_functions: serialize(used),
+        warnings: build_warnings(functions),
       }
     end
 
     private
-
-    # -------------------------------------------------------------------------
-    # Discovery
-    # -------------------------------------------------------------------------
-
-    def discover_module_functions(modules_dir)
-      functions = []
-      Dir.glob(File.join(modules_dir, '*')).each do |mod_path|
-        next unless File.directory?(mod_path)
-
-        mod_name = File.basename(mod_path)
-        functions.concat(discover_pp_functions(mod_path, mod_name))
-        functions.concat(discover_ruby_modern_functions(mod_path, mod_name))
-        functions.concat(discover_ruby_legacy_functions(mod_path, mod_name))
-      end
-      functions.uniq(&:qualified_name).sort_by(&:qualified_name)
-    end
-
-    # modules/<mod>/functions/**/*.pp
-    # Puppet-language functions; name is declared inline: function mod::name(...)
-    def discover_pp_functions(mod_path, mod_name)
-      Dir.glob(File.join(mod_path, 'functions', '**', '*.pp')).filter_map do |file|
-        name = extract_pp_function_name(file)
-        next unless name
-
-        FunctionDef.new(
-          call_name:      name,
-          qualified_name: name,
-          module_name:    mod_name,
-          source_file:    file,
-          type:           :pp_modern
-        )
-      end
-    end
-
-    # modules/<mod>/lib/puppet/functions/**/*.rb
-    # Modern Ruby API: Puppet::Functions.create_function(:'mod::name')
-    def discover_ruby_modern_functions(mod_path, mod_name)
-      Dir.glob(File.join(mod_path, 'lib', 'puppet', 'functions', '**', '*.rb')).filter_map do |file|
-        name = extract_ruby_modern_function_name(file)
-        next unless name
-
-        FunctionDef.new(
-          call_name:      name,
-          qualified_name: name,
-          module_name:    mod_name,
-          source_file:    file,
-          type:           :ruby_modern
-        )
-      end
-    end
-
-    # modules/<mod>/lib/puppet/parser/functions/*.rb
-    # Legacy Ruby API: Puppet::Parser::Functions.newfunction(:name, ...)
-    # Names are unnamespaced in code; we qualify for grouping only.
-    def discover_ruby_legacy_functions(mod_path, mod_name)
-      Dir.glob(File.join(mod_path, 'lib', 'puppet', 'parser', 'functions', '*.rb')).filter_map do |file|
-        name = extract_ruby_legacy_function_name(file)
-        next unless name
-
-        FunctionDef.new(
-          call_name:      name,
-          qualified_name: "#{mod_name}::#{name}",
-          module_name:    mod_name,
-          source_file:    file,
-          type:           :ruby_legacy
-        )
-      end
-    end
-
-    # -------------------------------------------------------------------------
-    # Name extraction
-    # -------------------------------------------------------------------------
-
-    def extract_pp_function_name(file)
-      File.foreach(file) do |line|
-        m = line.match(/^\s*function\s+([\w:]+)\s*[\(\|]/)
-        return m[1].downcase if m
-      end
-      nil
-    end
-
-    def extract_ruby_modern_function_name(file)
-      File.foreach(file) do |line|
-        m = line.match(/create_function\s*\(\s*[:"']+([\w:]+)['":]?\s*\)/)
-        return m[1].downcase if m
-      end
-      nil
-    end
-
-    def extract_ruby_legacy_function_name(file)
-      File.foreach(file) do |line|
-        m = line.match(/newfunction\s*\(\s*:(\w+)/)
-        return m[1].downcase if m
-      end
-      # Fall back to filename if newfunction line can't be parsed
-      File.basename(file, '.rb').downcase
-    end
 
     # -------------------------------------------------------------------------
     # Call-site scanning
@@ -395,20 +330,12 @@ module Deadwood
     def find_call_sites(env_dir, call_names)
       return {} if call_names.empty?
 
-      source_files = collect_source_files(env_dir)
       hits         = Hash.new { |h, k| h[k] = [] }
-
-      source_files.each do |src|
-        begin
-          content = File.read(src, encoding: 'UTF-8', invalid: :replace)
-        rescue Errno::EACCES
-          next
-        end
-
+      each_source_content(env_dir) do |src, content|
         call_names.each do |name|
           # Match the function name not immediately preceded or followed by a
           # word character (avoids partial-name false positives).
-          hits[name] << src if content.match?(/(?<!\w)#{Regexp.escape(name)}(?!\w)/)
+          hits[name] << src if content.match?(%r{(?<!\w)#{Regexp.escape(name)}(?!\w)})
         end
       end
 
@@ -436,22 +363,75 @@ module Deadwood
       warnings = []
       legacy = functions.select { |f| f.type == :ruby_legacy }
       unless legacy.empty?
-        warnings << "#{legacy.size} legacy Ruby function(s) detected (type: ruby_legacy). " \
-                    'Legacy function names are unnamespaced, which increases the risk of ' \
-                    'false negatives if the name is generic (e.g. "validate_string"). ' \
-                    'Review these results manually: ' + legacy.map(&:call_name).join(', ')
+        warnings << ("#{legacy.size} legacy Ruby function(s) detected (type: ruby_legacy). " \
+                     'Legacy function names are unnamespaced, which increases the risk of ' \
+                     'false negatives if the name is generic (e.g. "validate_string"). ' \
+                     'Review these results manually: ' + legacy.map(&:call_name).join(', '))
       end
       warnings
+    end
+
+    # Discovers declarations while retaining legacy functions' unqualified call names.
+    class FunctionDiscovery
+      STYLES = {
+        pp_modern: ['functions', '**', '*.pp'],
+        ruby_modern: ['lib', 'puppet', 'functions', '**', '*.rb'],
+        ruby_legacy: ['lib', 'puppet', 'parser', 'functions', '*.rb'],
+      }.freeze
+      NAME_PATTERNS = {
+        pp_modern: %r{^\s*function\s+([\w:]+)\s*[\(\|]},
+        ruby_modern: %r{create_function\s*\(\s*[:"']+([\w:]+)['":]?\s*\)},
+        ruby_legacy: %r{newfunction\s*\(\s*:(\w+)},
+      }.freeze
+
+      def run(modules_dir)
+        functions = Dir.glob(File.join(modules_dir, '*')).flat_map do |mod_path|
+          next [] unless File.directory?(mod_path)
+
+          STYLES.flat_map { |type, pattern| discover_functions(mod_path, type, pattern) }
+        end
+        functions.uniq(&:qualified_name).sort_by(&:qualified_name)
+      end
+
+      private
+
+      def discover_functions(mod_path, type, pattern)
+        Dir.glob(File.join(mod_path, *pattern)).filter_map do |file|
+          name = extract_name(file, type)
+          next unless name
+
+          function_definition(name, File.basename(mod_path), file, type)
+        end
+      end
+
+      def function_definition(name, mod_name, file, type)
+        FunctionScanner::FunctionDef.new(
+          call_name: name,
+          qualified_name: (type == :ruby_legacy) ? "#{mod_name}::#{name}" : name,
+          module_name: mod_name,
+          source_file: file,
+          type: type,
+        )
+      end
+
+      def extract_name(file, type)
+        File.foreach(file) do |line|
+          match = line.match(NAME_PATTERNS.fetch(type))
+          return match[1].downcase if match
+        end
+        # Legacy functions without a parsable declaration use their filename.
+        File.basename(file, '.rb').downcase if type == :ruby_legacy
+      end
     end
 
     def serialize(functions)
       functions.map do |f|
         {
-          call_name:      f.call_name,
+          call_name: f.call_name,
           qualified_name: f.qualified_name,
-          module_name:    f.module_name,
-          source_file:    f.source_file,
-          type:           f.type.to_s
+          module_name: f.module_name,
+          source_file: f.source_file,
+          type: f.type.to_s,
         }
       end
     end
@@ -498,7 +478,7 @@ module Deadwood
 
       {
         unused_defined_types: serialize_types(unused_defined, include_count: false),
-        unused_custom_types:  serialize_types(unused_custom,  include_count: false)
+        unused_custom_types: serialize_types(unused_custom, include_count: false),
       }
     end
 
@@ -529,13 +509,7 @@ module Deadwood
         # PuppetDB stores defined type instances with each segment capitalised,
         # e.g. "mymod::mytype" → resource type "Mymod::Mytype"
         pdb_name = name.split('::').map(&:capitalize).join('::')
-        TypeDef.new(
-          name:          name,
-          pdb_type_name: pdb_name,
-          module_name:   mod_name,
-          source_file:   file,
-          kind:          :defined_type
-        )
+        type_definition(name, pdb_name, mod_name, file, :defined_type)
       end
     end
 
@@ -548,14 +522,18 @@ module Deadwood
         # Custom types appear in PuppetDB with a simple capitalised name,
         # e.g. "mytype" → resource type "Mytype"
         pdb_name = name.capitalize
-        TypeDef.new(
-          name:          name,
-          pdb_type_name: pdb_name,
-          module_name:   mod_name,
-          source_file:   file,
-          kind:          :custom_type
-        )
+        type_definition(name, pdb_name, mod_name, file, :custom_type)
       end
+    end
+
+    def type_definition(name, pdb_name, mod_name, file, kind)
+      TypeDef.new(
+        name: name,
+        pdb_type_name: pdb_name,
+        module_name: mod_name,
+        source_file: file,
+        kind: kind,
+      )
     end
 
     # -------------------------------------------------------------------------
@@ -564,7 +542,7 @@ module Deadwood
 
     def extract_defined_type_name(file)
       File.foreach(file) do |line|
-        m = line.match(/^\s*define\s+([\w:]+)\s*[\(\|{]?/)
+        m = line.match(%r{^\s*define\s+([\w:]+)\s*[\(\|\{]?})
         return m[1].downcase if m
       end
       nil
@@ -573,7 +551,7 @@ module Deadwood
     def extract_custom_type_name(file)
       File.foreach(file) do |line|
         # Puppet::Type.newtype(:name) or Puppet::Type.newtype('name')
-        m = line.match(/newtype\s*\(\s*[:'"](\w+)/)
+        m = line.match(%r{newtype\s*\(\s*[:'"](\w+)})
         return m[1].downcase if m
       end
       # Fall back to filename if declaration line can't be parsed
@@ -597,16 +575,21 @@ module Deadwood
     # -------------------------------------------------------------------------
 
     def serialize_types(type_count_pairs, include_count:)
-      type_count_pairs.map do |type_def, count|
-        entry = {
-          name:        type_def.name,
-          kind:        type_def.kind.to_s,
-          module_name: type_def.module_name,
-          source_file: type_def.source_file
-        }
+      entries = type_count_pairs.map do |type_def, count|
+        entry = serialize_type(type_def)
         entry[:instance_count] = count if include_count
         entry
-      end.sort_by { |e| e[:name] }
+      end
+      entries.sort_by { |e| e[:name] }
+    end
+
+    def serialize_type(type_def)
+      {
+        name: type_def.name,
+        kind: type_def.kind.to_s,
+        module_name: type_def.module_name,
+        source_file: type_def.source_file,
+      }
     end
   end
 
@@ -628,6 +611,8 @@ module Deadwood
   # matching is exact — no partial-name false-positive risk.
   # ===========================================================================
   class TemplateScanner
+    include ScannerSupport
+
     TemplateDef = Struct.new(:reference, :module_name, :format, :source_file, keyword_init: true)
 
     # Returns a hash:
@@ -636,20 +621,13 @@ module Deadwood
     #     used_templates:   [ ... ]
     #   }
     def run(env_dir:)
-      raise "Environment directory not found: #{env_dir}" unless File.directory?(env_dir)
-
-      modules_dir = File.join(env_dir, 'modules')
-      raise "modules/ directory not found under #{env_dir}" unless File.directory?(modules_dir)
-
-      templates   = discover_templates(modules_dir)
-      call_sites  = find_call_sites(env_dir, templates.map(&:reference))
-
-      unused = templates.reject { |t| call_sites.include?(t.reference) }
-      used   = templates.select { |t| call_sites.include?(t.reference) }
+      templates   = discover_templates(modules_directory(env_dir))
+      call_sites  = find_references(env_dir, templates.map(&:reference))
+      used, unused = templates.partition { |t| call_sites.include?(t.reference) }
 
       {
         unused_templates: serialize(unused),
-        used_templates:   serialize(used)
+        used_templates: serialize(used),
       }
     end
 
@@ -664,49 +642,27 @@ module Deadwood
       Dir.glob(File.join(modules_dir, '*')).each do |mod_path|
         next unless File.directory?(mod_path)
 
-        mod_name      = File.basename(mod_path)
-        templates_dir = File.join(mod_path, 'templates')
-        next unless File.directory?(templates_dir)
-
-        Dir.glob(File.join(templates_dir, '**', '*.{epp,erb}')).each do |file|
-          # Build the canonical module reference: '<mod>/<path/within/templates>'
-          relative  = file.sub("#{templates_dir}/", '')
-          format    = File.extname(file) == '.epp' ? :epp : :erb
-          templates << TemplateDef.new(
-            reference:   "#{mod_name}/#{relative}",
-            module_name: mod_name,
-            format:      format,
-            source_file: file
-          )
-        end
+        templates.concat(discover_module_templates(mod_path))
       end
       templates.sort_by(&:reference)
     end
 
-    # -------------------------------------------------------------------------
-    # Call-site scanning
-    # -------------------------------------------------------------------------
+    def discover_module_templates(mod_path)
+      templates_dir = File.join(mod_path, 'templates')
+      return [] unless File.directory?(templates_dir)
 
-    # Returns a Set of template references that appear in at least one source file.
-    def find_call_sites(env_dir, references)
-      return Set.new if references.empty?
-
-      source_files = collect_source_files(env_dir)
-      found        = Set.new
-
-      source_files.each do |src|
-        begin
-          content = File.read(src, encoding: 'UTF-8', invalid: :replace)
-        rescue Errno::EACCES
-          next
-        end
-
-        references.each do |ref|
-          found.add(ref) if content.include?(ref)
-        end
+      Dir.glob(File.join(templates_dir, '**', '*.{epp,erb}')).map do |file|
+        template_definition(file, templates_dir, File.basename(mod_path))
       end
+    end
 
-      found
+    def template_definition(file, templates_dir, mod_name)
+      TemplateDef.new(
+        reference: "#{mod_name}/#{file.sub("#{templates_dir}/", '')}",
+        module_name: mod_name,
+        format: (File.extname(file) == '.epp') ? :epp : :erb,
+        source_file: file,
+      )
     end
 
     # All manifest, function, and library files that could contain template calls.
@@ -714,7 +670,7 @@ module Deadwood
     def collect_source_files(env_dir)
       patterns = [
         File.join(env_dir, 'manifests',   '**', '*.pp'),
-        File.join(env_dir, 'modules',     '**', 'manifests',  '**', '*.pp'),
+        File.join(env_dir, 'modules',     '**', 'manifests', '**', '*.pp'),
         File.join(env_dir, 'modules',     '**', 'functions',   '**', '*.pp'),
         File.join(env_dir, 'modules',     '**', 'lib',         '**', '*.rb'),
         File.join(env_dir, 'site',        '**', '*.pp'),
@@ -729,10 +685,10 @@ module Deadwood
     def serialize(templates)
       templates.map do |t|
         {
-          reference:   t.reference,
+          reference: t.reference,
           module_name: t.module_name,
-          format:      t.format.to_s,
-          source_file: t.source_file
+          format: t.format.to_s,
+          source_file: t.source_file,
         }
       end
     end
@@ -759,6 +715,8 @@ module Deadwood
   # individual files as candidates.
   # ===========================================================================
   class FileScanner
+    include ScannerSupport
+
     FileDef = Struct.new(:uri, :module_name, :source_file, keyword_init: true)
 
     # Returns a hash:
@@ -767,20 +725,13 @@ module Deadwood
     #     used_files:   [ ... ]
     #   }
     def run(env_dir:)
-      raise "Environment directory not found: #{env_dir}" unless File.directory?(env_dir)
-
-      modules_dir = File.join(env_dir, 'modules')
-      raise "modules/ directory not found under #{env_dir}" unless File.directory?(modules_dir)
-
-      file_defs   = discover_module_files(modules_dir)
-      used_uris   = find_call_sites(env_dir, file_defs.map(&:uri))
-
-      unused = file_defs.reject { |f| used_uris.include?(f.uri) }
-      used   = file_defs.select { |f| used_uris.include?(f.uri) }
+      file_defs   = discover_module_files(modules_directory(env_dir))
+      used_uris   = find_references(env_dir, file_defs.map(&:uri))
+      used, unused = file_defs.partition { |f| used_uris.include?(f.uri) }
 
       {
         unused_files: serialize(unused),
-        used_files:   serialize(used)
+        used_files: serialize(used),
       }
     end
 
@@ -795,50 +746,28 @@ module Deadwood
       Dir.glob(File.join(modules_dir, '*')).each do |mod_path|
         next unless File.directory?(mod_path)
 
-        mod_name  = File.basename(mod_path)
-        files_dir = File.join(mod_path, 'files')
-        next unless File.directory?(files_dir)
-
-        Dir.glob(File.join(files_dir, '**', '*')).each do |path|
-          # Only report individual files — directories can be served recursively
-          # and we cannot know statically whether a parent dir URI covers them.
-          next if File.directory?(path)
-
-          relative = path.sub("#{files_dir}/", '')
-          file_defs << FileDef.new(
-            uri:         "puppet:///modules/#{mod_name}/#{relative}",
-            module_name: mod_name,
-            source_file: path
-          )
-        end
+        file_defs.concat(discover_files(mod_path))
       end
       file_defs.sort_by(&:uri)
     end
 
-    # -------------------------------------------------------------------------
-    # Call-site scanning
-    # -------------------------------------------------------------------------
+    def discover_files(mod_path)
+      files_dir = File.join(mod_path, 'files')
+      return [] unless File.directory?(files_dir)
 
-    # Returns a Set of URIs that appear in at least one source file.
-    def find_call_sites(env_dir, uris)
-      return Set.new if uris.empty?
+      Dir.glob(File.join(files_dir, '**', '*')).filter_map do |path|
+        next if File.directory?(path)
 
-      source_files = collect_source_files(env_dir)
-      found        = Set.new
-
-      source_files.each do |src|
-        begin
-          content = File.read(src, encoding: 'UTF-8', invalid: :replace)
-        rescue Errno::EACCES
-          next
-        end
-
-        uris.each do |uri|
-          found.add(uri) if content.include?(uri)
-        end
+        file_definition(path, files_dir, File.basename(mod_path))
       end
+    end
 
-      found
+    def file_definition(path, files_dir, mod_name)
+      FileDef.new(
+        uri: "puppet:///modules/#{mod_name}/#{path.sub("#{files_dir}/", '')}",
+        module_name: mod_name,
+        source_file: path,
+      )
     end
 
     # All manifest, function, and library files that could contain file resource
@@ -847,7 +776,7 @@ module Deadwood
     def collect_source_files(env_dir)
       patterns = [
         File.join(env_dir, 'manifests',   '**', '*.pp'),
-        File.join(env_dir, 'modules',     '**', 'manifests',  '**', '*.pp'),
+        File.join(env_dir, 'modules',     '**', 'manifests', '**', '*.pp'),
         File.join(env_dir, 'modules',     '**', 'functions',   '**', '*.pp'),
         File.join(env_dir, 'modules',     '**', 'templates',   '**', '*.erb'),
         File.join(env_dir, 'modules',     '**', 'lib',         '**', '*.rb'),
@@ -863,9 +792,9 @@ module Deadwood
     def serialize(file_defs)
       file_defs.map do |f|
         {
-          uri:         f.uri,
+          uri: f.uri,
           module_name: f.module_name,
-          source_file: f.source_file
+          source_file: f.source_file,
         }
       end
     end
@@ -902,60 +831,71 @@ module Deadwood
       hiera_yaml_path = File.join(env_dir, 'hiera.yaml')
       raise "hiera.yaml not found in #{env_dir}" unless File.exist?(hiera_yaml_path)
 
-      data_dirs     = resolve_data_dirs(env_dir, hiera_yaml_path)
-      warnings      = []
-      key_files     = Hash.new { |h, k| h[k] = [] }
-      files_scanned = 0
+      data_dirs = resolve_data_dirs(env_dir, hiera_yaml_path)
+      key_files, files_scanned, warnings = scan_data_dirs(data_dirs)
+      ranked = rank_keys(key_files, sort_order)
 
-      data_dirs.each do |data_dir|
-        unless File.directory?(data_dir)
-          warnings << "Data directory not found, skipping: #{data_dir}"
-          next
-        end
-
-        Dir.glob(File.join(data_dir, '**', '*.yaml')).sort.each do |yaml_file|
-          keys = extract_keys(yaml_file, warnings)
-          files_scanned += 1
-          relative = yaml_file.sub("#{data_dir}/", '')
-          keys.each { |k| key_files[k] << relative }
-        end
-      end
-
-      ranked = key_files.map do |key, files|
-        { key: key, file_count: files.size, files: files.sort }
-      end
-
-      ranked = case sort_order
-               when :desc then ranked.sort_by { |e| [-e[:file_count], e[:key]] }
-               else            ranked.sort_by { |e| [e[:file_count],  e[:key]] }
-               end
-
-      {
-        hiera_keys:          ranked,
-        data_dirs:           data_dirs,
-        total_keys:          ranked.size,
-        total_files_scanned: files_scanned,
-        warnings:            warnings
-      }
+      build_result(ranked, data_dirs, files_scanned, warnings)
     end
 
     private
 
+    def build_result(ranked, data_dirs, files_scanned, warnings)
+      {
+        hiera_keys: ranked,
+        data_dirs: data_dirs,
+        total_keys: ranked.size,
+        total_files_scanned: files_scanned,
+        warnings: warnings,
+      }
+    end
+
+    def scan_data_dirs(data_dirs)
+      warnings = []
+      key_files = Hash.new { |h, k| h[k] = [] }
+      files_scanned = data_dirs.sum do |data_dir|
+        scan_data_dir(data_dir, key_files, warnings)
+      end
+      [key_files, files_scanned, warnings]
+    end
+
+    def scan_data_dir(data_dir, key_files, warnings)
+      unless File.directory?(data_dir)
+        warnings << "Data directory not found, skipping: #{data_dir}"
+        return 0
+      end
+
+      yaml_files = Dir.glob(File.join(data_dir, '**', '*.yaml'))
+      yaml_files.each do |yaml_file|
+        relative = yaml_file.sub("#{data_dir}/", '')
+        extract_keys(yaml_file, warnings).each { |key| key_files[key] << relative }
+      end
+      yaml_files.size
+    end
+
+    def rank_keys(key_files, sort_order)
+      ranked = key_files.map do |key, files|
+        { key: key, file_count: files.size, files: files.sort }
+      end
+      ranked.sort_by { |entry| [(sort_order == :desc) ? -entry[:file_count] : entry[:file_count], entry[:key]] }
+    end
+
     # Reads the environment hiera.yaml and returns an array of absolute paths
     # for every unique datadir declared (defaults + per-hierarchy overrides).
     def resolve_data_dirs(env_dir, hiera_yaml_path)
-      hiera_config = YAML.safe_load(File.read(hiera_yaml_path)) || {}
+      hiera_config = YAML.safe_load_file(hiera_yaml_path) || {}
       default_dir  = hiera_config.dig('defaults', 'datadir') || 'data'
       hierarchy    = hiera_config['hierarchy'] || []
 
-      all_dirs = [default_dir]
-      hierarchy.each do |level|
-        all_dirs << level['datadir'] if level.is_a?(Hash) && level['datadir']
-      end
+      all_dirs = [default_dir] + hierarchy_data_dirs(hierarchy)
 
       all_dirs.uniq.map { |d| File.expand_path(d, env_dir) }
     rescue Psych::SyntaxError => e
       raise "Failed to parse hiera.yaml: #{e.message}"
+    end
+
+    def hierarchy_data_dirs(hierarchy)
+      hierarchy.filter_map { |level| level['datadir'] if level.is_a?(Hash) }
     end
 
     # Parses a single YAML data file and returns its top-level keys as strings.

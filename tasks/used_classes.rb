@@ -14,13 +14,13 @@ def resolve_certname
   certname.empty? ? `hostname -f`.strip : certname
 end
 
-params   = JSON.parse(STDIN.read)
+params   = JSON.parse($stdin.read)
 ssl_dir  = '/etc/puppetlabs/puppet/ssl'
 certname = resolve_certname
 
-puppetserver_host = params['puppetserver_host'] || certname
-puppetdb_host     = params['puppetdb_host']     || certname
-puppetserver_port = (params['puppetserver_port'] || 8140).to_i
+params['puppetserver_host'] || certname
+puppetdb_host = params['puppetdb_host'] || certname
+(params['puppetserver_port'] || 8140).to_i
 puppetdb_port     = (params['puppetdb_port']     || 8081).to_i
 environment       = params['environment']        || 'production'
 stale_days        = (params['stale_days']        || 30).to_i
@@ -39,12 +39,12 @@ begin
   result            = Deadwood::UsageAnalyzer.new.run(class_node_counts: class_node_counts, top_n: top_n)
 
   meta = {
-    environment:  environment,
-    stale_days:   stale_days,
-    top_n:        top_n.zero? ? 'all' : top_n,
+    environment: environment,
+    stale_days: stale_days,
+    top_n: top_n.zero? ? 'all' : top_n,
     puppetdb_host: puppetdb_host,
     puppetdb_port: puppetdb_port,
-    generated_at: Time.now.utc.iso8601
+    generated_at: Time.now.utc.iso8601,
   }
 
   task_summary = {
@@ -52,10 +52,10 @@ begin
   }
 
   puts JSON.generate({
-    meta:           meta,
-    summary:        task_summary,
-    ranked_classes: result[:ranked_classes],
-  })
+                       meta: meta,
+                       summary: task_summary,
+                       ranked_classes: result[:ranked_classes],
+                     })
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })

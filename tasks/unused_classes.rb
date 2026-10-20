@@ -12,7 +12,7 @@ def resolve_certname
   certname.empty? ? `hostname -f`.strip : certname
 end
 
-params   = JSON.parse(STDIN.read)
+params   = JSON.parse($stdin.read)
 ssl_dir  = '/etc/puppetlabs/puppet/ssl'
 certname = resolve_certname
 
@@ -39,21 +39,21 @@ begin
                                                            applied_class_names: applied_class_names)
 
   meta = {
-    environment:       environment,
-    stale_days:        stale_days,
+    environment: environment,
+    stale_days: stale_days,
     puppetserver_host: puppetserver_host,
     puppetserver_port: puppetserver_port,
-    puppetdb_host:     puppetdb_host,
-    puppetdb_port:     puppetdb_port,
-    generated_at:      Time.now.utc.iso8601
+    puppetdb_host: puppetdb_host,
+    puppetdb_port: puppetdb_port,
+    generated_at: Time.now.utc.iso8601,
   }
 
   report = Deadwood::Reporter.new.render(result: result, meta: meta)
 
   output = {
-    meta:    report[:meta],
+    meta: report[:meta],
     summary: {
-      unused_class_count:  report[:unused_classes].size,
+      unused_class_count: report[:unused_classes].size,
       unused_module_count: report[:unused_modules].size,
     },
     unused_classes: report[:unused_classes],

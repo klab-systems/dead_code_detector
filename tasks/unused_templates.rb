@@ -21,7 +21,7 @@ def puppet_config(key)
   val.empty? ? nil : val
 end
 
-params      = JSON.parse(STDIN.read)
+params      = JSON.parse($stdin.read)
 environment = params['environment'] || 'production'
 
 env_dir = params['env_dir'] ||
@@ -34,22 +34,22 @@ begin
   result = Deadwood::TemplateScanner.new.run(env_dir: env_dir)
 
   meta = {
-    environment:  environment,
-    env_dir:      env_dir,
-    generated_at: Time.now.utc.iso8601
+    environment: environment,
+    env_dir: env_dir,
+    generated_at: Time.now.utc.iso8601,
   }
 
   task_summary = {
     unused_template_count: result[:unused_templates].size,
-    used_template_count:   result[:used_templates].size,
+    used_template_count: result[:used_templates].size,
   }
 
   puts JSON.generate({
-    meta:             meta,
-    summary:          task_summary,
-    unused_templates: result[:unused_templates],
-    used_templates:   result[:used_templates],
-  })
+                       meta: meta,
+                       summary: task_summary,
+                       unused_templates: result[:unused_templates],
+                       used_templates: result[:used_templates],
+                     })
   exit 0
 rescue RuntimeError => e
   puts JSON.generate(_error: { msg: e.message, kind: 'deadwood/runtime-error', details: {} })
