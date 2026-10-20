@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## Release 2.0.0 (2026-10-20)
+
+**Breaking changes**
+
+- Updated the supported Puppet range from `>= 7.24 < 9.0.0` to `>= 8.0.0 < 10.0.0`. Puppet 7 is no longer supported; Puppet 9 is now included.
+- Updated the operating system support declarations: removed CentOS, Scientific Linux, Debian, Oracle Linux 7, Red Hat Enterprise Linux 7, and Ubuntu 18.04/20.04. Declared support now covers Oracle Linux 8/9, Red Hat Enterprise Linux 8/9/10, Rocky Linux 8/9, AlmaLinux 8/9, and Ubuntu 22.04/24.04/26.04.
+- Development dependencies now default to the authenticated Puppet Core gem repository for Bolt, Puppet, and Facter. Contributors using public gems can opt out with `bundle config set gemsource.public true`. The previous `GEM_SOURCE_PUPPETCORE` override is no longer used.
+
+**Features**
+
+- Made `targets` optional in the `dead_code_detector::full_audit` plan. When omitted, the plan discovers the Primary Server through PuppetDB using `inventory[certname] { facts.pe_status_check_role = "primary" }`. This requires a PuppetDB connection configured for Bolt. Discovery fails with an explicit error if no primary or multiple primaries are found; explicit targets remain supported.
+
+**Maintenance and testing**
+
+- Updated the module to PDK 4.0.1 and refreshed its template, gem dependencies, lint configuration, and Rake task loading, including compatibility updates for Ruby 4 and Puppet 9 development environments.
+- Refactored the shared library to extract common environment validation and source scanning, consolidate function discovery, and split Hiera scanning and reporting into smaller methods while preserving task report formats and ordering.
+- Resolved Ruby lint offenses, including using `$stdin` in all seven task entry points, passing a block directly to `to_set`, and correcting the brace-delimited defined-type regular expression.
+- Added 22 unit tests covering function, template, file, type, and Hiera scanners, including invalid environment handling, report shapes, reference matching, key ordering, and YAML errors. Tests use temporary filesystem fixtures without live Puppet services.
+
+**Documentation**
+
+- Documented automatic Primary Server discovery and its PuppetDB configuration requirements in the README.
+- Added explanatory comments to the unit tests describing fixture setup, expected results, and scanner behavior.
+
 ## Release 1.1.0 (2026-06-01)
 
 **Features**
