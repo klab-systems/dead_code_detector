@@ -262,6 +262,14 @@ module Deadwood
       end
     end
 
+    def each_source_line(file)
+      File.foreach(file, encoding: 'UTF-8').with_index(1) do |line, line_number|
+        raise "Invalid UTF-8 in source file #{file}:#{line_number}" unless line.valid_encoding?
+
+        yield line
+      end
+    end
+
     def find_references(env_dir, references)
       found = Set.new
       return found if references.empty?
@@ -373,6 +381,8 @@ module Deadwood
 
     # Discovers declarations while retaining legacy functions' unqualified call names.
     class FunctionDiscovery
+      include ScannerSupport
+
       STYLES = {
         pp_modern: ['functions', '**', '*.pp'],
         ruby_modern: ['lib', 'puppet', 'functions', '**', '*.rb'],
@@ -415,7 +425,7 @@ module Deadwood
       end
 
       def extract_name(file, type)
-        File.foreach(file) do |line|
+        each_source_line(file) do |line|
           match = line.match(NAME_PATTERNS.fetch(type))
           return match[1].downcase if match
         end
@@ -458,6 +468,8 @@ module Deadwood
   # reported as unused.
   # ===========================================================================
   class TypeScanner
+    include ScannerSupport
+
     TypeDef = Struct.new(:name, :pdb_type_name, :module_name, :source_file, :kind, keyword_init: true)
 
     # Returns a hash:
@@ -541,7 +553,7 @@ module Deadwood
     # -------------------------------------------------------------------------
 
     def extract_defined_type_name(file)
-      File.foreach(file) do |line|
+      each_source_line(file) do |line|
         m = line.match(%r{^\s*define\s+([\w:]+)\s*[\(\|\{]?})
         return m[1].downcase if m
       end
@@ -549,7 +561,7 @@ module Deadwood
     end
 
     def extract_custom_type_name(file)
-      File.foreach(file) do |line|
+      each_source_line(file) do |line|
         # Puppet::Type.newtype(:name) or Puppet::Type.newtype('name')
         m = line.match(%r{newtype\s*\(\s*[:'"](\w+)})
         return m[1].downcase if m

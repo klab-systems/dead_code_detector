@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+**Bug fixes**
+
+- Read type and function declarations as UTF-8 independently of the task process locale, preventing `unused_types`, `unused_functions`, and `full_audit` from failing on non-ASCII source comments under US-ASCII locales. Invalid UTF-8 encountered during discovery now raises an explicit error identifying the source file and line rather than returning a partial report.
+- Added regression tests covering all five declaration styles under a US-ASCII default external encoding, including malformed source bytes.
+
 ## Release 2.0.0 (2026-10-20)
 
 **Breaking changes**

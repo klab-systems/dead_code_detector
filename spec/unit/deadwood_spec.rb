@@ -209,6 +209,53 @@ RSpec.describe Deadwood do
     end
   end
 
+  describe 'declaration source encoding' do
+    around :each do |example|
+      original_encoding = Encoding.default_external
+      Encoding.default_external = Encoding::US_ASCII
+      example.run
+    ensure
+      Encoding.default_external = original_encoding
+    end
+
+    shared_examples 'a UTF-8 declaration reader' do |path, declaration, name|
+      it 'discovers declarations with non-ASCII comments under an ASCII default encoding' do
+        write_fixture(path, "# caf\u00e9\n#{declaration} # \u00a9\n")
+        expect(discovered_names).to include(name)
+      end
+
+      it 'reports the source path and line for invalid UTF-8 instead of returning a partial report' do
+        source = write_fixture(path, '# invalid: '.b + [255].pack('C') + "\n#{declaration}".b)
+        expect { discovered_names }.to raise_error(RuntimeError, "Invalid UTF-8 in source file #{source}:1")
+      end
+    end
+
+    context 'when discovering functions' do
+      let(:discovered_names) do
+        Deadwood::FunctionScanner::FunctionDiscovery.new.run(File.join(env_dir, 'modules')).map(&:call_name)
+      end
+
+      include_examples 'a UTF-8 declaration reader',
+                       'modules/sample/functions/native.pp', 'function sample::native() {}', 'sample::native'
+      include_examples 'a UTF-8 declaration reader',
+                       'modules/sample/lib/puppet/functions/modern.rb', "Puppet::Functions.create_function(:'sample::modern') {}", 'sample::modern'
+      include_examples 'a UTF-8 declaration reader',
+                       'modules/sample/lib/puppet/parser/functions/legacy.rb', 'Puppet::Parser::Functions.newfunction(:legacy) {}', 'legacy'
+    end
+
+    context 'when discovering types' do
+      let(:discovered_names) do
+        report = Deadwood::TypeScanner.new.run(modules_dir: File.join(env_dir, 'modules'), applied_resource_types: Set.new)
+        (report[:unused_defined_types] + report[:unused_custom_types]).map { |entry| entry[:name] }
+      end
+
+      include_examples 'a UTF-8 declaration reader',
+                       'modules/sample/manifests/unused.pp', 'define sample::unused { }', 'sample::unused'
+      include_examples 'a UTF-8 declaration reader',
+                       'modules/sample/lib/puppet/type/custom.rb', "Puppet::Type.newtype('custom') {}", 'custom'
+    end
+  end
+
   describe Deadwood::HieraScanner do
     let(:scanner) { described_class.new }
     let(:expected_report) do
